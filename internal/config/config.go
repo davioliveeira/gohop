@@ -48,7 +48,7 @@ func Load(profileName string) (*Config, error) {
 	// Configurar Viper
 	viperConfig.SetConfigName("config")
 	viperConfig.SetConfigType("yaml")
-	viperConfig.AddConfigPath("$HOME/.rabbitmq-cli")
+	viperConfig.AddConfigPath("$HOME/.gohop")
 	viperConfig.AddConfigPath(".")
 
 	// Variáveis de ambiente (têm precedência)
@@ -111,7 +111,7 @@ func setDefaults() {
 
 // Save salva a configuração em arquivo YAML
 func Save(cfg *Config, profileName string) error {
-	configDir := filepath.Join(os.Getenv("HOME"), ".rabbitmq-cli")
+	configDir := filepath.Join(os.Getenv("HOME"), ".gohop")
 	if err := os.MkdirAll(configDir, 0755); err != nil {
 		return fmt.Errorf("erro ao criar diretório de configuração: %w", err)
 	}
@@ -152,7 +152,7 @@ func Get() *Config {
 
 // GetConfigDir retorna o diretório de configuração
 func GetConfigDir() string {
-	return filepath.Join(os.Getenv("HOME"), ".rabbitmq-cli")
+	return filepath.Join(os.Getenv("HOME"), ".gohop")
 }
 
 // Validate valida se a configuração está completa
