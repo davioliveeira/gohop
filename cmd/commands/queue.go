@@ -2,14 +2,15 @@ package commands
 
 import (
 	"fmt"
+	"os"
 	"strconv"
-	"strings"
 
 	"github.com/charmbracelet/huh"
-	"github.com/charmbracelet/lipgloss"
-	"github.com/davioliveeira/rabbit/internal/config"
-	"github.com/davioliveeira/rabbit/internal/rabbitmq"
+	"github.com/davioliveeira/gohop/internal/config"
+	"github.com/davioliveeira/gohop/internal/rabbitmq"
+	"github.com/davioliveeira/gohop/internal/ui"
 	"github.com/spf13/cobra"
+	"golang.org/x/term"
 )
 
 var queueCmd = &cobra.Command{
@@ -58,7 +59,6 @@ var queuePurgeCmd = &cobra.Command{
 }
 
 func init() {
-	// Flags para queue create
 	queueCreateCmd.Flags().String("type", "quorum", "Tipo de fila (classic|quorum)")
 	queueCreateCmd.Flags().Bool("durable", true, "Fila durável")
 	queueCreateCmd.Flags().Bool("auto-delete", false, "Auto-deletar quando não usada")
@@ -67,7 +67,6 @@ func init() {
 	queueCreateCmd.Flags().Int("retry-delay", 5, "Delay entre tentativas (segundos)")
 	queueCreateCmd.Flags().Bool("dry-run", false, "Mostrar o que seria criado sem executar")
 
-	// Flags para queue delete
 	queueDeleteCmd.Flags().Bool("if-unused", false, "Só deletar se não tiver consumers")
 	queueDeleteCmd.Flags().Bool("if-empty", false, "Só deletar se estiver vazia")
 	queueDeleteCmd.Flags().Bool("cascade", false, "Deletar também filas relacionadas (wait, DLQ)")
@@ -81,14 +80,14 @@ func init() {
 
 func runQueueCreate(cmd *cobra.Command, args []string) error {
 	queueName := args[0]
-	
-	// Carregar configuração
+	fmt.Print(ui.SubMenuHeader("➕", "Criar Fila", fmt.Sprintf("Criando fila '%s'", queueName)))
+
 	cfg, err := config.Load(profile)
 	if err != nil {
+		fmt.Println(ui.SubMenuError("Erro ao carregar configuração"))
 		return fmt.Errorf("erro ao carregar configuração: %w", err)
 	}
 
-	// Obter flags
 	queueType, _ := cmd.Flags().GetString("type")
 	durable, _ := cmd.Flags().GetBool("durable")
 	autoDelete, _ := cmd.Flags().GetBool("auto-delete")
@@ -96,62 +95,66 @@ func runQueueCreate(cmd *cobra.Command, args []string) error {
 	dryRun, _ := cmd.Flags().GetBool("dry-run")
 
 	if dryRun {
-		fmt.Printf("\n[DRY RUN] Criaria fila:\n")
-		fmt.Printf("  Nome:       %s\n", queueName)
-		fmt.Printf("  Tipo:       %s\n", queueType)
-		fmt.Printf("  Durable:    %v\n", durable)
-		fmt.Printf("  AutoDelete: %v\n", autoDelete)
+		fmt.Println(ui.SubMenuSection("📋", "Dry Run - O que seria criado"))
+		fmt.Print(ui.SubMenuKeyValue("Nome:", queueName, true))
+		fmt.Print(ui.SubMenuKeyValue("Tipo:", queueType, false))
+		fmt.Print(ui.SubMenuKeyValue("Durável:", fmt.Sprintf("%v", durable), false))
+		fmt.Print(ui.SubMenuKeyValue("Auto-delete:", fmt.Sprintf("%v", autoDelete), false))
 		if withRetry {
 			maxRetries, _ := cmd.Flags().GetInt("max-retries")
 			retryDelay, _ := cmd.Flags().GetInt("retry-delay")
-			fmt.Printf("  Com Retry:  Sim (max: %d, delay: %ds)\n", maxRetries, retryDelay)
+			fmt.Print(ui.SubMenuKeyValue("Com Retry:", fmt.Sprintf("Sim (max: %d, delay: %ds)", maxRetries, retryDelay), false))
 		}
 		return nil
 	}
 
-	// Verificar se fila já existe
+	fmt.Println(ui.SubMenuLoading("Conectando ao RabbitMQ"))
+
 	client, err := rabbitmq.NewClient(cfg.RabbitMQ)
 	if err != nil {
+		fmt.Println(ui.SubMenuError("Erro ao conectar"))
 		return fmt.Errorf("erro ao conectar: %w", err)
 	}
 	defer client.Close()
 
 	exists, err := client.QueueExists(queueName)
 	if err != nil {
-		return fmt.Errorf("erro ao verificar se fila existe: %w", err)
+		return fmt.Errorf("erro ao verificar fila: %w", err)
 	}
 
 	if exists {
-		// Perguntar confirmação se fila já existe
+		fmt.Println(ui.SubMenuWarning(fmt.Sprintf("Fila '%s' já existe", queueName)))
+
 		var recreate bool
 		confirmForm := huh.NewForm(
 			huh.NewGroup(
 				huh.NewConfirm().
-					Title(fmt.Sprintf("Fila '%s' já existe", queueName)).
-					Description("Deseja recriar a fila? (a fila atual será deletada)").
+					Title("🗑️  Recriar fila?").
+					Description("A fila atual será deletada permanentemente").
 					Value(&recreate),
 			),
 		)
-		confirmForm.WithTheme(huh.ThemeCharm())
-		
+		confirmForm.WithTheme(ui.GetCharmTheme())
+
 		if err := confirmForm.Run(); err != nil {
 			return err
 		}
 
 		if !recreate {
-			fmt.Println("❌ Operação cancelada")
+			fmt.Println(ui.SubMenuError("Operação cancelada"))
 			return nil
 		}
 
-		// Deletar fila existente
+		fmt.Println(ui.SubMenuLoading("Deletando fila existente"))
 		_, err := client.DeleteQueue(queueName, false, false, false)
 		if err != nil {
-			return fmt.Errorf("erro ao deletar fila existente: %w", err)
+			return fmt.Errorf("erro ao deletar fila: %w", err)
 		}
-		fmt.Printf("🗑️  Fila '%s' deletada\n", queueName)
+		fmt.Println(ui.SubMenuDone("Fila deletada"))
 	}
 
-	// Criar fila
+	fmt.Println(ui.SubMenuLoading("Criando fila"))
+
 	opts := rabbitmq.CreateQueueOptions{
 		Name:       queueName,
 		Type:       queueType,
@@ -162,275 +165,274 @@ func runQueueCreate(cmd *cobra.Command, args []string) error {
 		Arguments:  make(map[string]interface{}),
 	}
 
-	if withRetry {
-		// Se with-retry, apenas criamos a fila básica agora
-		// O setup completo de retry será na Fase 3
-		fmt.Println("⚠️  --with-retry será implementado na Fase 3 (sistema de retry completo)")
-	}
-
 	if err := client.CreateQueue(opts); err != nil {
+		fmt.Println(ui.SubMenuError("Erro ao criar fila"))
 		return fmt.Errorf("erro ao criar fila: %w", err)
 	}
 
-	successStyle := lipgloss.NewStyle().
-		Foreground(lipgloss.Color("42")).
-		Bold(true)
-
+	fmt.Println(ui.SubMenuDone("Fila criada com sucesso!"))
 	fmt.Println()
-	fmt.Println(successStyle.Render(fmt.Sprintf("✅ Fila '%s' criada com sucesso!", queueName)))
-	fmt.Printf("   Tipo:       %s\n", queueType)
-	fmt.Printf("   Durable:    %v\n", durable)
-	fmt.Printf("   AutoDelete: %v\n", autoDelete)
+
+	fmt.Println(ui.SubMenuSection("📋", "Detalhes da Fila"))
+	fmt.Print(ui.SubMenuKeyValue("Nome:", queueName, true))
+	fmt.Print(ui.SubMenuKeyValue("Tipo:", queueType, false))
+	fmt.Print(ui.SubMenuKeyValue("Durável:", fmt.Sprintf("%v", durable), false))
+	fmt.Print(ui.SubMenuKeyValue("Auto-delete:", fmt.Sprintf("%v", autoDelete), false))
+
+	if withRetry {
+		fmt.Println(ui.SubMenuWarning("Use 'gohop retry setup' para configurar retry"))
+	}
 
 	return nil
 }
 
 func runQueueList(cmd *cobra.Command, args []string) error {
-	// Carregar configuração
+	fmt.Print(ui.SubMenuHeader("📋", "Listar Filas", "Filas disponíveis no RabbitMQ"))
+
 	cfg, err := config.Load(profile)
 	if err != nil {
+		fmt.Println(ui.SubMenuError("Erro ao carregar configuração"))
 		return fmt.Errorf("erro ao carregar configuração: %w", err)
 	}
 
-	// Usar Management API para listar filas
+	fmt.Println(ui.SubMenuLoading("Buscando filas"))
+
 	mgmtClient := rabbitmq.NewManagementClient(cfg.RabbitMQ)
 	queues, err := mgmtClient.ListQueues()
 	if err != nil {
+		fmt.Println(ui.SubMenuError("Erro ao listar filas"))
 		return fmt.Errorf("erro ao listar filas: %w", err)
 	}
 
 	if len(queues) == 0 {
-		fmt.Println("ℹ️  Nenhuma fila encontrada")
+		fmt.Println(ui.SubMenuWarning("Nenhuma fila encontrada"))
+		fmt.Println(ui.SubMenuHelp("Use 'gohop queue create <nome>' para criar uma fila"))
 		return nil
 	}
 
-	// Formatar como tabela
-	if outputFmt == "json" {
-		// TODO: Implementar output JSON
-		fmt.Println("Output JSON ainda não implementado")
-		return nil
+	fmt.Println(ui.SubMenuDone(fmt.Sprintf("%d fila(s) encontrada(s)", len(queues))))
+	fmt.Println()
+
+	// Se terminal interativo, usar tabela interativa
+	if term.IsTerminal(int(os.Stdout.Fd())) && outputFmt == "table" {
+		return ui.RunQueueTable(cfg)
 	}
 
-	// Tabela usando Lip Gloss
-	fmt.Println()
-	style := lipgloss.NewStyle().
-		Foreground(lipgloss.Color("205")).
-		Bold(true)
-	fmt.Println(style.Render("📋 Filas Disponíveis"))
-	fmt.Println()
-
-	// Header
-	headerStyle := lipgloss.NewStyle().
-		Foreground(lipgloss.Color("213")).
-		Bold(true).
-		Width(40).
-		Align(lipgloss.Left)
-
-	rowStyle := lipgloss.NewStyle().
-		Width(40).
-		Align(lipgloss.Left)
-
-	fmt.Printf("%s %s %s %s\n",
-		headerStyle.Render("Nome"),
-		headerStyle.Render("Tipo"),
-		headerStyle.Render("Msgs"),
-		headerStyle.Render("Consumers"))
-
-	fmt.Println(strings.Repeat("-", 100))
-
-	for _, queue := range queues {
-		fmt.Printf("%s %s %s %s\n",
-			rowStyle.Render(queue.Name),
-			rowStyle.Render(queue.Type),
-			rowStyle.Render(strconv.Itoa(queue.MessagesReady)),
-			rowStyle.Render(strconv.Itoa(queue.Consumers)))
+	// Modo não-interativo: tabela simples
+	headers := []string{"Nome", "Tipo", "Msgs", "Unacked", "Consumers"}
+	var rows [][]string
+	for _, q := range queues {
+		rows = append(rows, []string{
+			truncateStr(q.Name, 35),
+			q.Type,
+			strconv.Itoa(q.MessagesReady),
+			strconv.Itoa(q.MessagesUnacked),
+			strconv.Itoa(q.Consumers),
+		})
 	}
 
+	fmt.Print(ui.SubMenuTable(headers, rows))
 	fmt.Println()
-	fmt.Printf("Total: %d fila(s)\n", len(queues))
 
 	return nil
 }
 
 func runQueueDelete(cmd *cobra.Command, args []string) error {
 	queueName := args[0]
-	
-	// Carregar configuração
+	fmt.Print(ui.SubMenuHeader("🗑️", "Deletar Fila", fmt.Sprintf("Removendo fila '%s'", queueName)))
+
 	cfg, err := config.Load(profile)
 	if err != nil {
+		fmt.Println(ui.SubMenuError("Erro ao carregar configuração"))
 		return fmt.Errorf("erro ao carregar configuração: %w", err)
 	}
 
-	// Obter flags
 	cascade, _ := cmd.Flags().GetBool("cascade")
-	// Nota: ifUnused e ifEmpty serão usados na Fase 3 quando implementarmos delete via AMQP
-	// Por enquanto, usamos Management API que não precisa dessas flags
 
-	// Verificar se fila existe
 	mgmtClient := rabbitmq.NewManagementClient(cfg.RabbitMQ)
 	queue, err := mgmtClient.GetQueue(cfg.RabbitMQ.VHost, queueName)
 	if err != nil {
+		fmt.Println(ui.SubMenuError("Fila não encontrada"))
 		return fmt.Errorf("fila não encontrada: %s", queueName)
 	}
 
-	// Mostrar informações da fila
-	fmt.Printf("\n📋 Informações da Fila:\n")
-	fmt.Printf("   Nome:      %s\n", queue.Name)
-	fmt.Printf("   Mensagens: %d (prontas) + %d (unacked)\n", queue.MessagesReady, queue.MessagesUnacked)
-	fmt.Printf("   Consumers: %d\n", queue.Consumers)
+	// Mostrar informações
+	fmt.Println(ui.SubMenuSection("📊", "Informações da Fila"))
+	fmt.Print(ui.SubMenuKeyValue("Nome:", queue.Name, true))
+	fmt.Print(ui.SubMenuKeyValue("Mensagens prontas:", strconv.Itoa(queue.MessagesReady), queue.MessagesReady > 0))
+	fmt.Print(ui.SubMenuKeyValue("Mensagens unacked:", strconv.Itoa(queue.MessagesUnacked), queue.MessagesUnacked > 0))
+	fmt.Print(ui.SubMenuKeyValue("Consumers:", strconv.Itoa(queue.Consumers), queue.Consumers > 0))
 	fmt.Println()
 
-	// Se tem mensagens ou consumers, perguntar confirmação
+	// Aviso se tem dados
 	if queue.MessagesReady > 0 || queue.MessagesUnacked > 0 || queue.Consumers > 0 {
-		var confirm bool
-		confirmForm := huh.NewForm(
-			huh.NewGroup(
-				huh.NewConfirm().
-					Title("⚠️  Atenção!").
-					Description(fmt.Sprintf("A fila tem mensagens ou consumers ativos. Deletar mesmo assim?")).
-					Value(&confirm),
-			),
-		)
-		confirmForm.WithTheme(huh.ThemeCharm())
-		
-		if err := confirmForm.Run(); err != nil {
-			return err
-		}
-
-		if !confirm {
-			fmt.Println("❌ Operação cancelada")
-			return nil
-		}
+		fmt.Println(ui.SubMenuWarning("A fila tem mensagens ou consumers ativos!"))
+		fmt.Println()
 	}
 
-	// Deletar fila relacionada (cascade)
+	var confirm bool
+	confirmForm := huh.NewForm(
+		huh.NewGroup(
+			huh.NewConfirm().
+				Title("⚠️  Confirmar exclusão?").
+				Description("Esta operação não pode ser desfeita").
+				Value(&confirm),
+		),
+	)
+	confirmForm.WithTheme(ui.GetCharmTheme())
+
+	if err := confirmForm.Run(); err != nil {
+		return err
+	}
+
+	if !confirm {
+		fmt.Println(ui.SubMenuError("Operação cancelada"))
+		return nil
+	}
+
+	// Deletar filas relacionadas (cascade)
 	if cascade {
-		// Deletar wait queue, DLQ se existirem
+		fmt.Println(ui.SubMenuLoading("Deletando filas relacionadas"))
 		waitQueue := fmt.Sprintf("%s.wait", queueName)
 		dlqQueue := fmt.Sprintf("%s.dlq", queueName)
-		
+
 		for _, relatedQueue := range []string{waitQueue, dlqQueue} {
 			_, err := mgmtClient.GetQueue(cfg.RabbitMQ.VHost, relatedQueue)
 			if err == nil {
 				if err := mgmtClient.DeleteQueueViaAPI(cfg.RabbitMQ.VHost, relatedQueue); err == nil {
-					fmt.Printf("🗑️  Fila relacionada '%s' deletada\n", relatedQueue)
+					fmt.Println(ui.SubMenuDone(fmt.Sprintf("Fila '%s' deletada", relatedQueue)))
 				}
 			}
 		}
 	}
 
-	// Deletar via Management API (mais confiável)
+	fmt.Println(ui.SubMenuLoading("Deletando fila principal"))
 	if err := mgmtClient.DeleteQueueViaAPI(cfg.RabbitMQ.VHost, queueName); err != nil {
+		fmt.Println(ui.SubMenuError("Erro ao deletar fila"))
 		return fmt.Errorf("erro ao deletar fila: %w", err)
 	}
 
-	successStyle := lipgloss.NewStyle().
-		Foreground(lipgloss.Color("42")).
-		Bold(true)
-
-	fmt.Println(successStyle.Render(fmt.Sprintf("✅ Fila '%s' deletada com sucesso!", queueName)))
+	fmt.Println(ui.SubMenuDone(fmt.Sprintf("Fila '%s' deletada com sucesso!", queueName)))
 
 	return nil
 }
 
 func runQueueStatus(cmd *cobra.Command, args []string) error {
 	queueName := args[0]
-	
-	// Carregar configuração
+	fmt.Print(ui.SubMenuHeader("📊", "Status da Fila", fmt.Sprintf("Detalhes de '%s'", queueName)))
+
 	cfg, err := config.Load(profile)
 	if err != nil {
+		fmt.Println(ui.SubMenuError("Erro ao carregar configuração"))
 		return fmt.Errorf("erro ao carregar configuração: %w", err)
 	}
 
-	// Obter informações da fila via Management API
 	mgmtClient := rabbitmq.NewManagementClient(cfg.RabbitMQ)
 	queue, err := mgmtClient.GetQueue(cfg.RabbitMQ.VHost, queueName)
 	if err != nil {
+		fmt.Println(ui.SubMenuError("Fila não encontrada"))
 		return fmt.Errorf("fila não encontrada: %s", queueName)
 	}
 
-	// Formatar saída
-	fmt.Println()
-	titleStyle := lipgloss.NewStyle().
-		Foreground(lipgloss.Color("205")).
-		Bold(true).
-		PaddingBottom(1)
+	// Configuração
+	fmt.Println(ui.SubMenuSection("⚙", "Configuração"))
+	fmt.Print(ui.SubMenuKeyValue("Nome:", queue.Name, true))
+	fmt.Print(ui.SubMenuKeyValue("Tipo:", queue.Type, false))
+	fmt.Print(ui.SubMenuKeyValue("VHost:", queue.VHost, false))
+	fmt.Print(ui.SubMenuKeyValue("Durável:", fmt.Sprintf("%v", queue.Durable), false))
+	fmt.Print(ui.SubMenuKeyValue("Auto-delete:", fmt.Sprintf("%v", queue.AutoDelete), false))
+	fmt.Print(ui.SubMenuKeyValue("Exclusive:", fmt.Sprintf("%v", queue.Exclusive), false))
 
-	fmt.Println(titleStyle.Render(fmt.Sprintf("📊 Status da Fila: %s", queue.Name)))
-	fmt.Println()
+	// Status de mensagens
+	fmt.Println(ui.SubMenuSection("📨", "Mensagens"))
 
-	fmt.Printf("Configuração:\n")
-	fmt.Printf("  Tipo:        %s\n", queue.Type)
-	fmt.Printf("  VHost:       %s\n", queue.VHost)
-	fmt.Printf("  Durable:     %v\n", queue.Durable)
-	fmt.Printf("  AutoDelete:  %v\n", queue.AutoDelete)
-	fmt.Printf("  Exclusive:   %v\n", queue.Exclusive)
-	fmt.Println()
+	// Indicador visual de status
+	status := "success"
+	if queue.MessagesReady > 100 {
+		status = "warning"
+	}
+	if queue.MessagesReady > 1000 {
+		status = "error"
+	}
 
-	fmt.Printf("Estatísticas:\n")
-	fmt.Printf("  Mensagens Prontas:     %d\n", queue.MessagesReady)
-	fmt.Printf("  Mensagens Unacked:     %d\n", queue.MessagesUnacked)
-	fmt.Printf("  Total de Mensagens:    %d\n", queue.Messages)
-	fmt.Printf("  Consumers:             %d\n", queue.Consumers)
+	fmt.Print(ui.SubMenuKeyValue("Prontas:", ui.SubMenuStatus(strconv.Itoa(queue.MessagesReady), status), false))
+	fmt.Print(ui.SubMenuKeyValue("Unacked:", strconv.Itoa(queue.MessagesUnacked), queue.MessagesUnacked > 0))
+	fmt.Print(ui.SubMenuKeyValue("Total:", strconv.Itoa(queue.Messages), false))
+
+	// Consumers
+	fmt.Println(ui.SubMenuSection("👥", "Consumers"))
+	consumerStatus := "success"
+	if queue.Consumers == 0 {
+		consumerStatus = "warning"
+	}
+	fmt.Print(ui.SubMenuKeyValue("Ativos:", ui.SubMenuStatus(strconv.Itoa(queue.Consumers), consumerStatus), false))
 	if queue.ConsumerUtilisation > 0 {
-		fmt.Printf("  Utilização Consumer:  %.1f%%\n", queue.ConsumerUtilisation*100)
+		fmt.Print(ui.SubMenuKeyValue("Utilização:", fmt.Sprintf("%.1f%%", queue.ConsumerUtilisation*100), false))
 	}
-	fmt.Println()
 
+	// Métricas
 	if queue.MessageStats.Publish > 0 || queue.MessageStats.Deliver > 0 {
-		fmt.Printf("Métricas (message_stats):\n")
-		fmt.Printf("  Publicações:          %d\n", queue.MessageStats.Publish)
-		fmt.Printf("  Entregas:             %d\n", queue.MessageStats.Deliver)
-		fmt.Printf("  Acknowledges:         %d\n", queue.MessageStats.Ack)
-		fmt.Println()
+		fmt.Println(ui.SubMenuSection("📈", "Métricas"))
+		fmt.Print(ui.SubMenuKeyValue("Publicações:", strconv.Itoa(queue.MessageStats.Publish), false))
+		fmt.Print(ui.SubMenuKeyValue("Entregas:", strconv.Itoa(queue.MessageStats.Deliver), false))
+		fmt.Print(ui.SubMenuKeyValue("Acknowledges:", strconv.Itoa(queue.MessageStats.Ack), false))
 	}
 
+	fmt.Println()
 	return nil
 }
 
 func runQueuePurge(cmd *cobra.Command, args []string) error {
 	queueName := args[0]
-	
-	// Carregar configuração
+	fmt.Print(ui.SubMenuHeader("🧹", "Limpar Fila", fmt.Sprintf("Removendo mensagens de '%s'", queueName)))
+
 	cfg, err := config.Load(profile)
 	if err != nil {
+		fmt.Println(ui.SubMenuError("Erro ao carregar configuração"))
 		return fmt.Errorf("erro ao carregar configuração: %w", err)
 	}
 
-	// Verificar se fila existe e quantas mensagens tem
 	mgmtClient := rabbitmq.NewManagementClient(cfg.RabbitMQ)
 	queue, err := mgmtClient.GetQueue(cfg.RabbitMQ.VHost, queueName)
 	if err != nil {
+		fmt.Println(ui.SubMenuError("Fila não encontrada"))
 		return fmt.Errorf("fila não encontrada: %s", queueName)
 	}
 
 	if queue.MessagesReady == 0 {
-		fmt.Println("ℹ️  A fila já está vazia")
+		fmt.Println(ui.SubMenuInfo("A fila já está vazia"))
 		return nil
 	}
 
-	// Perguntar confirmação
+	fmt.Println(ui.SubMenuSection("📊", "Status Atual"))
+	fmt.Print(ui.SubMenuKeyValue("Mensagens prontas:", strconv.Itoa(queue.MessagesReady), true))
+	fmt.Println()
+
+	fmt.Println(ui.SubMenuWarning(fmt.Sprintf("%d mensagens serão removidas permanentemente!", queue.MessagesReady)))
+	fmt.Println()
+
 	var confirm bool
 	confirmForm := huh.NewForm(
 		huh.NewGroup(
 			huh.NewConfirm().
-				Title(fmt.Sprintf("Limpar %d mensagens da fila '%s'?", queue.MessagesReady, queueName)).
+				Title("⚠️  Confirmar limpeza?").
 				Description("Esta operação não pode ser desfeita").
 				Value(&confirm),
 		),
 	)
-	confirmForm.WithTheme(huh.ThemeCharm())
-	
+	confirmForm.WithTheme(ui.GetCharmTheme())
+
 	if err := confirmForm.Run(); err != nil {
 		return err
 	}
 
 	if !confirm {
-		fmt.Println("❌ Operação cancelada")
+		fmt.Println(ui.SubMenuError("Operação cancelada"))
 		return nil
 	}
 
-	// Limpar fila
+	fmt.Println(ui.SubMenuLoading("Limpando fila"))
+
 	client, err := rabbitmq.NewClient(cfg.RabbitMQ)
 	if err != nil {
 		return fmt.Errorf("erro ao conectar: %w", err)
@@ -439,14 +441,18 @@ func runQueuePurge(cmd *cobra.Command, args []string) error {
 
 	messages, err := client.PurgeQueue(queueName, false)
 	if err != nil {
+		fmt.Println(ui.SubMenuError("Erro ao limpar fila"))
 		return fmt.Errorf("erro ao limpar fila: %w", err)
 	}
 
-	successStyle := lipgloss.NewStyle().
-		Foreground(lipgloss.Color("42")).
-		Bold(true)
-
-	fmt.Println(successStyle.Render(fmt.Sprintf("✅ %d mensagens removidas da fila '%s'", messages, queueName)))
+	fmt.Println(ui.SubMenuDone(fmt.Sprintf("%d mensagens removidas!", messages)))
 
 	return nil
+}
+
+func truncateStr(s string, maxLen int) string {
+	if len(s) <= maxLen {
+		return s
+	}
+	return s[:maxLen-3] + "..."
 }

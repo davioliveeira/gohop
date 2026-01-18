@@ -2,12 +2,13 @@ package commands
 
 import (
 	"fmt"
+	"strconv"
 
 	"github.com/charmbracelet/huh"
-	"github.com/charmbracelet/lipgloss"
-	"github.com/davioliveeira/rabbit/internal/config"
-	"github.com/davioliveeira/rabbit/internal/rabbitmq"
-	"github.com/davioliveeira/rabbit/internal/retry"
+	"github.com/davioliveeira/gohop/internal/config"
+	"github.com/davioliveeira/gohop/internal/rabbitmq"
+	"github.com/davioliveeira/gohop/internal/retry"
+	"github.com/davioliveeira/gohop/internal/ui"
 	"github.com/spf13/cobra"
 )
 
@@ -52,82 +53,80 @@ func init() {
 func runRetrySetup(cmd *cobra.Command, args []string) error {
 	queueName := args[0]
 
-	// Carregar configuração
+	fmt.Print(ui.SubMenuHeader("🔄", "Configurar Retry", fmt.Sprintf("Setup do sistema de retry para '%s'", queueName)))
+
 	cfg, err := config.Load(profile)
 	if err != nil {
+		fmt.Println(ui.SubMenuError("Erro ao carregar configuração"))
 		return fmt.Errorf("erro ao carregar configuração: %w", err)
 	}
 
-	// Obter flags
 	maxRetries, _ := cmd.Flags().GetInt("max-retries")
 	retryDelay, _ := cmd.Flags().GetInt("retry-delay")
 	dlqTTL, _ := cmd.Flags().GetInt("dlq-ttl")
 	force, _ := cmd.Flags().GetBool("force")
 	queueType, _ := cmd.Flags().GetString("queue-type")
 
-	// Mostrar preview do que será criado
-	fmt.Println()
-	titleStyle := lipgloss.NewStyle().
-		Foreground(lipgloss.Color("205")).
-		Bold(true)
-
-	fmt.Println(titleStyle.Render(fmt.Sprintf("🔧 Configurando Retry para: %s", queueName)))
-	fmt.Println()
+	// Mostrar componentes que serão criados
+	fmt.Println(ui.SubMenuSection("📦", "Componentes do Sistema de Retry"))
 
 	waitQueueName := fmt.Sprintf("%s.wait", queueName)
 	waitExchangeName := fmt.Sprintf("%s.wait.exchange", queueName)
 	retryExchangeName := fmt.Sprintf("%s.retry", queueName)
 	dlqName := fmt.Sprintf("%s.dlq", queueName)
 
-	fmt.Println("📋 Componentes do Sistema de Retry:")
-	fmt.Printf("  📦 Main Queue:       %s\n", queueName)
-	fmt.Printf("  ⏱️  Wait Queue:       %s (TTL: %ds)\n", waitQueueName, retryDelay)
-	fmt.Printf("  🔄 Wait Exchange:    %s\n", waitExchangeName)
-	fmt.Printf("  🔀 Retry Exchange:   %s (headers)\n", retryExchangeName)
-	fmt.Printf("  💀 DLQ:              %s (TTL: %dms)\n", dlqName, dlqTTL)
-	fmt.Printf("  🔢 Max Retries:      %d\n", maxRetries)
+	fmt.Print(ui.SubMenuKeyValue("Main Queue:", queueName, true))
+	fmt.Print(ui.SubMenuKeyValue("Wait Queue:", fmt.Sprintf("%s (TTL: %ds)", waitQueueName, retryDelay), false))
+	fmt.Print(ui.SubMenuKeyValue("Wait Exchange:", waitExchangeName, false))
+	fmt.Print(ui.SubMenuKeyValue("Retry Exchange:", fmt.Sprintf("%s (headers)", retryExchangeName), false))
+	fmt.Print(ui.SubMenuKeyValue("DLQ:", fmt.Sprintf("%s (TTL: %dms)", dlqName, dlqTTL), false))
+	fmt.Print(ui.SubMenuKeyValue("Max Retries:", strconv.Itoa(maxRetries), false))
 	fmt.Println()
 
 	// Conectar
+	fmt.Println(ui.SubMenuLoading("Conectando ao RabbitMQ"))
 	client, err := rabbitmq.NewClient(cfg.RabbitMQ)
 	if err != nil {
+		fmt.Println(ui.SubMenuError("Erro ao conectar"))
 		return fmt.Errorf("erro ao conectar: %w", err)
 	}
 	defer client.Close()
 
-	// Verificar se fila principal existe
+	// Verificar fila principal
 	mainQueueExists, err := client.QueueExists(queueName)
 	if err != nil {
 		return fmt.Errorf("erro ao verificar fila: %w", err)
 	}
 
 	if mainQueueExists && !force {
-		// Perguntar se quer recriar a fila principal
+		fmt.Println(ui.SubMenuWarning(fmt.Sprintf("Fila '%s' já existe", queueName)))
+		fmt.Println()
+		fmt.Println(ui.SubMenuInfo("Para configurar retry, é necessário recriar a fila com DLX"))
+		fmt.Println()
+
 		var recreate bool
 		confirmForm := huh.NewForm(
 			huh.NewGroup(
 				huh.NewConfirm().
-					Title(fmt.Sprintf("Fila '%s' já existe", queueName)).
-					Description("Para configurar retry, é necessário recriar a fila com DLX. Deseja continuar?").
+					Title("🗑️  Recriar fila?").
+					Description("A fila atual será deletada e recriada com Dead Letter Exchange").
 					Value(&recreate),
 			),
 		)
-		confirmForm.WithTheme(huh.ThemeCharm())
+		confirmForm.WithTheme(ui.GetCharmTheme())
 
 		if err := confirmForm.Run(); err != nil {
 			return err
 		}
 
 		if !recreate {
-			fmt.Println("❌ Operação cancelada")
+			fmt.Println(ui.SubMenuError("Operação cancelada"))
 			return nil
 		}
 
-		// Deletar fila principal
-		fmt.Printf("🗑️  Deletando fila '%s'...\n", queueName)
+		fmt.Println(ui.SubMenuLoading("Deletando fila existente"))
 		_, err := client.DeleteQueue(queueName, false, false, false)
 		if err != nil {
-			// Tentar via Management API
 			mgmtClient := rabbitmq.NewManagementClient(cfg.RabbitMQ)
 			vhost := cfg.RabbitMQ.VHost
 			if vhost == "" {
@@ -139,10 +138,13 @@ func runRetrySetup(cmd *cobra.Command, args []string) error {
 				return fmt.Errorf("erro ao deletar fila: %w", err)
 			}
 		}
-		fmt.Printf("✅ Fila '%s' deletada\n", queueName)
+		fmt.Println(ui.SubMenuDone("Fila deletada"))
 	}
 
 	// Configurar sistema de retry
+	fmt.Println()
+	fmt.Println(ui.SubMenuSection("⚙", "Criando Componentes"))
+
 	setupOpts := retry.SetupOptions{
 		QueueName:  queueName,
 		MaxRetries: maxRetries,
@@ -151,39 +153,40 @@ func runRetrySetup(cmd *cobra.Command, args []string) error {
 		Force:      force,
 	}
 
-	fmt.Println("⚙️  Configurando sistema de retry...")
+	fmt.Println(ui.SubMenuLoading("Criando wait exchange"))
 	if err := retry.SetupRetry(client, setupOpts); err != nil {
+		fmt.Println(ui.SubMenuError("Erro ao configurar retry"))
 		return fmt.Errorf("erro ao configurar retry: %w", err)
 	}
 
-	fmt.Println("  ✅ Wait exchange criado")
-	fmt.Println("  ✅ Wait queue criada")
-	fmt.Println("  ✅ Retry exchange criado")
-	fmt.Println("  ✅ DLQ criada")
-	fmt.Println("  ✅ Bindings configurados")
+	fmt.Println(ui.SubMenuDone("Wait exchange criado"))
+	fmt.Println(ui.SubMenuDone("Wait queue criada"))
+	fmt.Println(ui.SubMenuDone("Retry exchange criado"))
+	fmt.Println(ui.SubMenuDone("DLQ criada"))
+	fmt.Println(ui.SubMenuDone("Bindings configurados"))
 
-	// Recriar fila principal com DLX
+	// Recriar fila principal
 	if !mainQueueExists || force {
 		fmt.Println()
-		fmt.Printf("📦 Recriando fila '%s' com DLX...\n", queueName)
+		fmt.Println(ui.SubMenuLoading(fmt.Sprintf("Recriando fila '%s' com DLX", queueName)))
 		if err := retry.RecreateQueueWithDLX(client, queueName, queueType); err != nil {
-			return fmt.Errorf("erro ao recriar fila principal: %w", err)
+			fmt.Println(ui.SubMenuError("Erro ao recriar fila"))
+			return fmt.Errorf("erro ao recriar fila: %w", err)
 		}
-		fmt.Printf("  ✅ Fila '%s' recriada com DLX apontando para %s\n", queueName, waitExchangeName)
+		fmt.Println(ui.SubMenuDone(fmt.Sprintf("Fila '%s' recriada com DLX", queueName)))
 	}
 
-	// Mensagem final
+	// Sucesso
 	fmt.Println()
-	successStyle := lipgloss.NewStyle().
-		Foreground(lipgloss.Color("42")).
-		Bold(true)
+	fmt.Println(ui.SubMenuDone("Sistema de retry configurado com sucesso!"))
+	fmt.Println()
 
-	fmt.Println(successStyle.Render("✅ Sistema de retry configurado com sucesso!"))
-	fmt.Println()
-	fmt.Println("ℹ️  Próximos passos:")
-	fmt.Println("   1. Configure seu consumer para verificar header 'x-death'")
-	fmt.Println("   2. Se retry_count < MAX_RETRIES, publique novamente na main queue")
-	fmt.Println("   3. Se retry_count >= MAX_RETRIES, publique na DLQ ou aceite o erro")
+	fmt.Println(ui.SubMenuSection("📝", "Próximos Passos"))
+	fmt.Print(ui.SubMenuList([]string{
+		"Configure seu consumer para verificar header 'x-death'",
+		"Se retry_count < MAX_RETRIES, republique na main queue",
+		"Se retry_count >= MAX_RETRIES, trate como erro definitivo",
+	}, "•"))
 
 	return nil
 }
@@ -191,89 +194,81 @@ func runRetrySetup(cmd *cobra.Command, args []string) error {
 func runRetryStatus(cmd *cobra.Command, args []string) error {
 	queueName := args[0]
 
-	// Carregar configuração
+	fmt.Print(ui.SubMenuHeader("📊", "Status do Retry", fmt.Sprintf("Sistema de retry para '%s'", queueName)))
+
 	cfg, err := config.Load(profile)
 	if err != nil {
+		fmt.Println(ui.SubMenuError("Erro ao carregar configuração"))
 		return fmt.Errorf("erro ao carregar configuração: %w", err)
 	}
 
-	// Obter informações do sistema de retry
+	fmt.Println(ui.SubMenuLoading("Buscando informações"))
+
 	mgmtClient := rabbitmq.NewManagementClient(cfg.RabbitMQ)
 	retryInfo, err := retry.GetRetrySystemInfo(mgmtClient, cfg.RabbitMQ, queueName)
 	if err != nil {
+		fmt.Println(ui.SubMenuError("Erro ao obter informações"))
 		return fmt.Errorf("erro ao obter informações: %w", err)
 	}
 
-	// Formatar saída
-	fmt.Println()
-	titleStyle := lipgloss.NewStyle().
-		Foreground(lipgloss.Color("205")).
-		Bold(true).
-		PaddingBottom(1)
-
-	fmt.Println(titleStyle.Render(fmt.Sprintf("📊 Status do Sistema de Retry: %s", queueName)))
-	fmt.Println()
-
 	// Status dos componentes
-	statusStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("42"))
-	missingStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("196"))
+	fmt.Println(ui.SubMenuSection("🔧", "Componentes"))
 
-	fmt.Println("🔧 Componentes:")
-	fmt.Printf("  📦 Main Queue:     ")
+	// Main Queue
 	if retryInfo.MainQueue {
-		fmt.Println(statusStyle.Render("✅") + fmt.Sprintf(" (%d msgs)", retryInfo.MainQueueMsgs))
+		fmt.Print(ui.SubMenuKeyValue("Main Queue:", ui.SubMenuStatus(fmt.Sprintf("OK (%d msgs)", retryInfo.MainQueueMsgs), "success"), false))
 	} else {
-		fmt.Println(missingStyle.Render("❌ Não encontrada"))
+		fmt.Print(ui.SubMenuKeyValue("Main Queue:", ui.SubMenuStatus("Não encontrada", "error"), false))
 	}
 
-	fmt.Printf("  ⏱️  Wait Queue:     ")
+	// Wait Queue
 	if retryInfo.WaitQueue {
-		fmt.Println(statusStyle.Render("✅") + fmt.Sprintf(" (%d msgs)", retryInfo.WaitQueueMsgs))
+		fmt.Print(ui.SubMenuKeyValue("Wait Queue:", ui.SubMenuStatus(fmt.Sprintf("OK (%d msgs)", retryInfo.WaitQueueMsgs), "success"), false))
 	} else {
-		fmt.Println(missingStyle.Render("❌ Não encontrada"))
+		fmt.Print(ui.SubMenuKeyValue("Wait Queue:", ui.SubMenuStatus("Não encontrada", "error"), false))
 	}
 
-	fmt.Printf("  🔄 Wait Exchange:  ")
+	// Wait Exchange
 	if retryInfo.WaitExchange {
-		fmt.Println(statusStyle.Render("✅"))
+		fmt.Print(ui.SubMenuKeyValue("Wait Exchange:", ui.SubMenuStatus("OK", "success"), false))
 	} else {
-		fmt.Println(missingStyle.Render("❌ Não encontrada"))
+		fmt.Print(ui.SubMenuKeyValue("Wait Exchange:", ui.SubMenuStatus("Não encontrado", "error"), false))
 	}
 
-	fmt.Printf("  🔀 Retry Exchange: ")
+	// Retry Exchange
 	if retryInfo.RetryExchange {
-		fmt.Println(statusStyle.Render("✅"))
+		fmt.Print(ui.SubMenuKeyValue("Retry Exchange:", ui.SubMenuStatus("OK", "success"), false))
 	} else {
-		fmt.Println(missingStyle.Render("❌ Não encontrada"))
+		fmt.Print(ui.SubMenuKeyValue("Retry Exchange:", ui.SubMenuStatus("Não encontrado", "error"), false))
 	}
 
-	fmt.Printf("  💀 DLQ:            ")
+	// DLQ
 	if retryInfo.DLQ {
-		fmt.Println(statusStyle.Render("✅") + fmt.Sprintf(" (%d msgs)", retryInfo.DLQMsgs))
+		dlqStatus := "success"
+		if retryInfo.DLQMsgs > 0 {
+			dlqStatus = "warning"
+		}
+		if retryInfo.DLQMsgs > 100 {
+			dlqStatus = "error"
+		}
+		fmt.Print(ui.SubMenuKeyValue("DLQ:", ui.SubMenuStatus(fmt.Sprintf("OK (%d msgs)", retryInfo.DLQMsgs), dlqStatus), false))
 	} else {
-		fmt.Println(missingStyle.Render("❌ Não encontrada"))
+		fmt.Print(ui.SubMenuKeyValue("DLQ:", ui.SubMenuStatus("Não encontrada", "error"), false))
 	}
-
-	fmt.Println()
 
 	// Configurações
-	fmt.Println("⚙️  Configurações:")
-	fmt.Printf("  Max Retries:  %d\n", retryInfo.MaxRetries)
-	fmt.Printf("  Retry Delay:  %ds\n", retryInfo.RetryDelay)
-	fmt.Printf("  DLQ TTL:      %dms\n", retryInfo.DLQTTL)
+	fmt.Println(ui.SubMenuSection("⚙", "Configurações"))
+	fmt.Print(ui.SubMenuKeyValue("Max Retries:", strconv.Itoa(retryInfo.MaxRetries), false))
+	fmt.Print(ui.SubMenuKeyValue("Retry Delay:", fmt.Sprintf("%ds", retryInfo.RetryDelay), false))
+	fmt.Print(ui.SubMenuKeyValue("DLQ TTL:", fmt.Sprintf("%dms", retryInfo.DLQTTL), false))
 
-	// Verificar se está completo
+	// Resumo
 	fmt.Println()
 	if retryInfo.MainQueue && retryInfo.WaitQueue && retryInfo.WaitExchange && retryInfo.RetryExchange && retryInfo.DLQ {
-		completeStyle := lipgloss.NewStyle().
-			Foreground(lipgloss.Color("42")).
-			Bold(true)
-		fmt.Println(completeStyle.Render("✅ Sistema de retry completo e funcionando"))
+		fmt.Println(ui.SubMenuDone("Sistema de retry completo e funcionando"))
 	} else {
-		incompleteStyle := lipgloss.NewStyle().
-			Foreground(lipgloss.Color("196")).
-			Bold(true)
-		fmt.Println(incompleteStyle.Render("⚠️  Sistema de retry incompleto. Execute 'retry setup' para configurar."))
+		fmt.Println(ui.SubMenuWarning("Sistema de retry incompleto"))
+		fmt.Println(ui.SubMenuHelp("Execute 'gohop retry setup' para configurar"))
 	}
 
 	return nil
