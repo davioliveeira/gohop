@@ -1,4 +1,5 @@
 # Binários
+gohop
 rabbitmq-cli
 *.exe
 *.dll
@@ -10,14 +11,13 @@ coverage.out
 coverage.html
 *.test
 
-# Go
-*.mod
-*.sum
+# Dependências
 vendor/
 
 # Configurações locais
 .env
-.config/
+config.yaml
+config.*.yaml
 *.local
 
 # IDEs
@@ -44,3 +44,6 @@ build/
 # Temporários
 tmp/
 temp/
+
+# Arquivos antigos (desenvolvimento)
+_old/

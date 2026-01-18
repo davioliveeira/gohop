@@ -1,318 +1,253 @@
-# 🐰 RabbitMQ Dead Letter Queue (DLQ) System
-
-Sistema completo para resolver loops infinitos de execução no n8n causados por falhas no processamento de mensagens do RabbitMQ.
-
-## 📋 O que é Dead Letter Queue (DLQ)?
-
-Uma **Dead Letter Queue** é uma fila especial que armazena mensagens que falharam múltiplas vezes. Isso evita:
-- ✅ Loops infinitos de execução
-- ✅ Desperdício de recursos computacionais
-- ✅ Permite análise posterior de erros
-- ✅ Facilita debugging de problemas
-
-## 🚀 Quick Start
-
-### 1. Instalação
-
-```bash
-# Instalar dependências
-pip install -r requirements.txt
-
-# Configurar credenciais
-cp .env.example .env
-# Edite o .env se necessário (já vem configurado com suas credenciais)
-```
-
-### 2. Ver filas atuais (modo seguro)
-
-```bash
-# Ver o que seria feito SEM fazer alterações
-python dlq_setup.py --dry-run
-```
-
-### 3. Configurar DLQ para todas as filas
-
-```bash
-# Isso vai criar as filas mortas
-python dlq_setup.py
-```
-
-### 4. Monitorar mensagens nas DLQs
-
-```bash
-# Ver estatísticas das DLQs
-python dlq_monitor.py
-
-# Inspecionar mensagens de uma fila específica
-python dlq_monitor.py --inspect nome_da_fila
-
-# Monitoramento contínuo (atualiza a cada 30s)
-python dlq_monitor.py --watch
-```
-
-### 5. Reprocessar mensagens (quando o problema estiver corrigido)
-
-```bash
-# Ver o que seria feito (modo seguro)
-python dlq_reprocess.py --queue nome_da_fila --dry-run
-
-# Reprocessar todas as mensagens
-python dlq_reprocess.py --queue nome_da_fila
-
-# Reprocessar apenas 10 mensagens (teste)
-python dlq_reprocess.py --queue nome_da_fila --max-messages 10
-```
-
-## 🔧 Como Funciona
-
-### Antes (Problema)
-```
-Mensagem → Fila → n8n Workflow → ❌ Falha
-     ↑                                  ↓
-     └──────────────────────────────────┘
-            Loop infinito! 😱
-```
-
-### Depois (Solução com DLQ)
-```
-Mensagem → Fila (tenta 3x) → n8n Workflow
-                    ↓
-            Ainda falhou?
-                    ↓
-          Dead Letter Queue
-          (fila de mensagens mortas)
-
-Você analisa → Corrige o problema → Reprocessa
-```
-
-## 📁 Estrutura do Projeto
-
-```
-rabbit/
-├── .env                    # Suas credenciais (NÃO commitar!)
-├── .env.example           # Template de configuração
-├── config.py              # Configurações do RabbitMQ e DLQ
-├── dlq_setup.py          # Script para configurar DLQs
-├── dlq_monitor.py        # Script para monitorar DLQs
-├── dlq_reprocess.py      # Script para reprocessar mensagens
-└── requirements.txt       # Dependências Python
-```
-
-## 🎯 Processo Completo de Implementação
-
-### Passo 1: Preparação (5 min)
-1. Avisar a equipe que você vai fazer manutenção
-2. Anotar quais workflows do n8n usam RabbitMQ
-3. Ter acesso ao painel do RabbitMQ: http://ec2-52-206-180-123.compute-1.amazonaws.com:15672
-
-### Passo 2: Análise (2 min)
-```bash
-# Ver todas as filas atuais
-python dlq_setup.py --dry-run
-```
-
-Isso mostra:
-- ✅ Quais filas existem
-- ✅ Quantas mensagens cada uma tem
-- ✅ Quantos consumidores (n8n workflows) estão conectados
-
-### Passo 3: Criação das DLQs (3 min)
-```bash
-# Criar as Dead Letter Queues
-python dlq_setup.py
-```
-
-O script vai criar para cada fila:
-- `nome_da_fila.dlq` - Fila morta
-- `nome_da_fila.retry` - Exchange de retry
-
-⚠️ **IMPORTANTE**: O script vai avisar que você precisa:
-1. Parar os workflows do n8n
-2. Deletar a fila original no RabbitMQ
-3. Rodar novamente para recriar com DLQ
-
-### Passo 4: Reconfiguração (10 min por fila)
-
-Para cada fila, faça:
-
-```bash
-# 1. Parar workflows no n8n que usam a fila
-# (fazer manualmente no n8n)
-
-# 2. Deletar a fila no RabbitMQ
-# (fazer manualmente no painel web)
-
-# 3. Recriar a fila com DLQ
-python dlq_setup.py --recreate nome_da_fila
-
-# 4. Reativar workflows no n8n
-# (fazer manualmente no n8n)
-```
-
-### Passo 5: Monitoramento (contínuo)
-
-Depois de configurado, monitore regularmente:
-
-```bash
-# Verificar se há mensagens nas DLQs
-python dlq_monitor.py
-
-# Se houver mensagens, investigar
-python dlq_monitor.py --inspect nome_da_fila
-```
-
-## 🆘 Cenários de Uso
-
-### Cenário 1: Mensagens estão indo para DLQ
-```bash
-# 1. Verificar o que está falhando
-python dlq_monitor.py --inspect minha_fila
-
-# 2. Corrigir o problema no n8n ou na aplicação
-
-# 3. Testar com algumas mensagens primeiro
-python dlq_reprocess.py --queue minha_fila --max-messages 5
-
-# 4. Se funcionou, reprocessar todas
-python dlq_reprocess.py --queue minha_fila
-```
-
-### Cenário 2: Mensagens inválidas que nunca vão funcionar
-```bash
-# Deletar permanentemente (cuidado!)
-python dlq_reprocess.py --queue minha_fila --purge
-```
-
-### Cenário 3: Configurar DLQ para uma fila nova
-```bash
-# Se a fila já existe
-python dlq_setup.py --queue nome_da_fila_nova
-
-# Seguir o processo de reconfiguração
-```
-
-## ⚙️ Configurações Avançadas
-
-### Arquivo .env
-
-```bash
-# Quantas vezes tentar antes de ir para DLQ
-MAX_RETRIES=3
-
-# Tempo de vida das mensagens na fila principal (24h)
-MESSAGE_TTL=86400000
-
-# Tempo de vida das mensagens na DLQ (7 dias)
-DLQ_MESSAGE_TTL=604800000
-```
-
-### Ajustar número de retries
-
-Edite o `.env`:
-```bash
-MAX_RETRIES=5  # Agora vai tentar 5 vezes antes de ir para DLQ
-```
-
-## 🐛 Troubleshooting
-
-### Erro: "Failed to connect to RabbitMQ"
-**Solução**: Verificar se as credenciais no `.env` estão corretas
-
-### Erro: "Queue already exists"
-**Solução**: A fila já existe. Use `--dry-run` para ver o status atual
-
-### Não vejo mensagens na DLQ mas sei que estão falhando
-**Solução**: A DLQ ainda não foi configurada para essa fila. Execute:
-```bash
-python dlq_setup.py --queue nome_da_fila
-```
-
-### Mensagens somem da fila
-**Solução**: Provavelmente o TTL expirou. Aumente `MESSAGE_TTL` no `.env`
-
-## 📊 Métricas e Alertas
-
-Configure alertas baseados no script de monitoramento:
-
-```bash
-# Exemplo: rodar a cada 5 minutos via cron
-*/5 * * * * cd /path/to/rabbit && python dlq_monitor.py | grep "Total messages in DLQs: [1-9]" && echo "ALERTA: Mensagens na DLQ!"
-```
-
-## 🔐 Segurança
-
-⚠️ **NUNCA** commite o arquivo `.env` com suas credenciais!
-
-O `.gitignore` já está configurado para ignorar:
-- `.env`
-- `*.pyc`
-- `__pycache__/`
-
-## 💡 Dicas para Apresentar ao Gestor
-
-1. **Mostre o problema atual**:
-   ```bash
-   # Antes
-   "As mensagens ficam em loop infinito, consumindo recursos"
-   ```
-
-2. **Mostre a solução**:
-   ```bash
-   # Ver que agora tem DLQs configuradas
-   python dlq_monitor.py
-   ```
-
-3. **Mostre que você tem controle**:
-   ```bash
-   # Pode inspecionar problemas
-   python dlq_monitor.py --inspect fila_com_problema
-
-   # Pode reprocessar quando corrigir
-   python dlq_reprocess.py --queue fila_com_problema
-   ```
-
-4. **Destaque os benefícios**:
-   - ✅ Sem mais loops infinitos
-   - ✅ Visibilidade total dos erros
-   - ✅ Capacidade de reprocessar mensagens
-   - ✅ Não perde nenhuma mensagem
-
-## 📚 Conceitos Importantes
-
-### Dead Letter Exchange (DLX)
-Quando uma mensagem falha, ela é enviada para um exchange especial (DLX) que roteia para a DLQ.
-
-### TTL (Time To Live)
-Tempo que uma mensagem pode ficar na fila antes de expirar.
-
-### Nack/Ack
-- **Ack**: Mensagem processada com sucesso
-- **Nack**: Mensagem falhou, tentar novamente
-
-### x-death header
-Header automático que conta quantas vezes uma mensagem já morreu.
-
-## 🎓 Próximos Passos
-
-1. ✅ Configurar DLQs para todas as filas
-2. 📊 Configurar monitoramento automático
-3. 🔔 Configurar alertas quando DLQ receber mensagens
-4. 📈 Criar dashboard no Grafana (opcional)
-5. 📝 Documentar padrões de erro comuns
-
-## 🤝 Suporte
-
-Em caso de dúvidas:
-1. Leia este README
-2. Use `--dry-run` para testar sem riscos
-3. Use `--help` em qualquer script para ver opções
-
-```bash
-python dlq_setup.py --help
-python dlq_monitor.py --help
-python dlq_reprocess.py --help
-```
+<p align="center">
+  <img src="https://raw.githubusercontent.com/davioliveeira/gohop/main/.github/logo.png" alt="GoHop Logo" width="200">
+</p>
+
+<h1 align="center">🐰 GoHop</h1>
+
+<p align="center">
+  <strong>A beautiful and powerful CLI for RabbitMQ management</strong>
+</p>
+
+<p align="center">
+  <a href="#features">Features</a> •
+  <a href="#installation">Installation</a> •
+  <a href="#quick-start">Quick Start</a> •
+  <a href="#usage">Usage</a> •
+  <a href="#screenshots">Screenshots</a> •
+  <a href="#contributing">Contributing</a>
+</p>
+
+<p align="center">
+  <img src="https://img.shields.io/badge/Go-1.21+-00ADD8?style=flat&logo=go" alt="Go Version">
+  <img src="https://img.shields.io/badge/License-MIT-green.svg" alt="License">
+  <img src="https://img.shields.io/badge/RabbitMQ-3.x-FF6600?logo=rabbitmq" alt="RabbitMQ">
+  <img src="https://goreportcard.com/badge/github.com/davioliveeira/gohop" alt="Go Report Card">
+</p>
 
 ---
 
-**Criado para resolver loops infinitos no n8n + RabbitMQ** 🚀
+## ✨ Features
+
+- 🎨 **Beautiful TUI** - Interactive terminal interface powered by [Charm](https://charm.sh)
+- 📊 **Real-time Monitoring** - Live dashboard for queue metrics
+- 🔄 **Retry System** - Built-in retry logic with Dead Letter Queues
+- ⚡ **Queue Management** - Create, delete, purge, and reconfigure queues
+- 🔧 **Easy Configuration** - Interactive setup wizard
+- 📈 **Multi-queue Dashboard** - Monitor multiple queues simultaneously
+- 🎯 **Zero Message Loss** - Safe queue reconfiguration preserving all messages
+
+## 📦 Installation
+
+### Using Go
+
+```bash
+go install github.com/davioliveeira/gohop/cmd/gohop@latest
+```
+
+### From Source
+
+```bash
+git clone https://github.com/davioliveeira/gohop.git
+cd gohop
+make build
+```
+
+### Pre-built Binaries
+
+Download from [Releases](https://github.com/davioliveeira/gohop/releases).
+
+## 🚀 Quick Start
+
+### 1. Configure Connection
+
+```bash
+gohop config init
+```
+
+Or create a `.env` file:
+
+```env
+RABBITMQ_HOST=localhost
+RABBITMQ_PORT=5672
+RABBITMQ_MANAGEMENT_PORT=15672
+RABBITMQ_USER=guest
+RABBITMQ_PASSWORD=guest
+RABBITMQ_VHOST=/
+```
+
+### 2. Run Interactive Mode
+
+```bash
+gohop
+```
+
+This opens the beautiful interactive menu where you can:
+- Create queues with retry/DLQ
+- Monitor queues in real-time
+- Manage existing queues
+- Reconfigure queues without losing messages
+
+## 📖 Usage
+
+### Interactive Mode (Recommended)
+
+```bash
+gohop
+```
+
+### CLI Commands
+
+```bash
+# Configuration
+gohop config init          # Interactive setup
+gohop config test          # Test connection
+gohop config view          # Show current config
+
+# Queue Management
+gohop queue list           # List all queues
+gohop queue create <name>  # Create a queue
+gohop queue delete <name>  # Delete a queue
+gohop queue purge <name>   # Purge messages
+gohop queue status <name>  # Queue details
+
+# Retry System
+gohop retry setup <name>   # Setup retry + DLQ
+gohop retry status <name>  # Check retry system
+
+# Monitoring
+gohop monitor <name>       # Real-time dashboard
+```
+
+## 🎯 Retry System Architecture
+
+GoHop implements a robust retry system with Dead Letter Queues:
+
+```
+┌─────────────┐    reject     ┌──────────────┐
+│  Main Queue │──────────────▶│ Wait Exchange │
+└─────────────┘               └──────────────┘
+       ▲                             │
+       │                             ▼
+       │                      ┌─────────────┐
+       │        TTL expires   │ Wait Queue  │
+       │◀─────────────────────│  (5s delay) │
+       │                      └─────────────┘
+       │                             │
+       │   retry < max               │ retry >= max
+       │◀────────────────────────────┤
+                                     ▼
+                              ┌─────────────┐
+                              │     DLQ     │
+                              │ (Dead Letter)│
+                              └─────────────┘
+```
+
+**Benefits:**
+- ✅ No infinite loops
+- ✅ Configurable retry count
+- ✅ Configurable delay between retries
+- ✅ Failed messages preserved in DLQ
+- ✅ Easy reprocessing from DLQ
+
+## 🖼️ Screenshots
+
+### Main Menu
+```
+   ╔═══════════════════════════════════════════════════════════════╗
+   ║                                                               ║
+   ║   🐰  G O H O P  -  R a b b i t M Q   C L I                  ║
+   ║                                                               ║
+   ╚═══════════════════════════════════════════════════════════════╝
+
+   Gerencie suas filas RabbitMQ com estilo e eficiência.
+
+   ➕  Criar Fila
+   📋  Listar Filas  
+   📊  Monitorar Fila
+   🔧  Reconfigurar Fila
+   ...
+```
+
+### Queue Dashboard
+```
+╭──────────────────────────────────────────────────────────────────╮
+│  📊 DASHBOARD: my-queue                                          │
+│                                                                  │
+│  Messages Ready:    ██████████░░░░░░░░░░  150                   │
+│  Unacknowledged:    ░░░░░░░░░░░░░░░░░░░░  0                     │
+│  Consumers:         2 active                                     │
+│                                                                  │
+│  🔄 Retry System: ✓ Active                                      │
+│  📭 DLQ Messages: 0                                              │
+╰──────────────────────────────────────────────────────────────────╯
+```
+
+## 🛠️ Development
+
+### Requirements
+
+- Go 1.21+
+- Docker (for integration tests)
+- Make
+
+### Build
+
+```bash
+make build
+```
+
+### Test
+
+```bash
+# Unit tests
+make test
+
+# Integration tests (requires Docker)
+make test-integration
+
+# All tests with coverage
+make test-coverage
+```
+
+### Project Structure
+
+```
+gohop/
+├── cmd/
+│   ├── gohop/          # Main entry point
+│   └── commands/       # CLI commands (Cobra)
+├── internal/
+│   ├── config/         # Configuration management
+│   ├── rabbitmq/       # RabbitMQ client & management API
+│   ├── retry/          # Retry system logic
+│   └── ui/             # TUI components (Bubble Tea)
+├── scripts/            # Helper scripts
+├── Makefile
+└── README.md
+```
+
+## 🤝 Contributing
+
+Contributions are welcome! Please feel free to submit a Pull Request.
+
+1. Fork the repository
+2. Create your feature branch (`git checkout -b feature/amazing-feature`)
+3. Commit your changes (`git commit -m 'Add amazing feature'`)
+4. Push to the branch (`git push origin feature/amazing-feature`)
+5. Open a Pull Request
+
+## 📄 License
+
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+
+## 🙏 Acknowledgments
+
+- [Charm](https://charm.sh) - For the amazing TUI libraries
+- [RabbitMQ](https://www.rabbitmq.com) - The message broker
+- [Cobra](https://github.com/spf13/cobra) - CLI framework
+
+---
+
+<p align="center">
+  Made with ❤️ and Go
+</p>
