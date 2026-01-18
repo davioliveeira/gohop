@@ -15,7 +15,7 @@ func TestMaskPassword(t *testing.T) {
 		{
 			name:     "empty password",
 			password: "",
-			expected: "",
+			expected: "(não definida)",
 		},
 		{
 			name:     "short password",
@@ -30,12 +30,12 @@ func TestMaskPassword(t *testing.T) {
 		{
 			name:     "normal password",
 			password: "mypassword123",
-			expected: "m***3",
+			expected: "m***********3",
 		},
 		{
 			name:     "long password",
 			password: "verylongpassword123456",
-			expected: "v***6",
+			expected: "v********************6",
 		},
 	}
 

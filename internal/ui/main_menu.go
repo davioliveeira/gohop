@@ -447,7 +447,7 @@ func RunMainMenu(cfg *config.Config) error {
 
 		// Se o usuário escolheu sair ou fechou o menu sem selecionar nada
 		if menuModel.selectedCmd == "" || menuModel.selectedCmd == "quit" {
-			fmt.Println("\n👋 Até logo!\n")
+			fmt.Println("\n👋 Até logo!")
 			return nil
 		}
 
