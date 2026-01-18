@@ -1,34 +1,28 @@
-# Environment variables (contains sensitive credentials!)
-.env
-
-# Python
-__pycache__/
-*.py[cod]
-*$py.class
+# Binários
+rabbitmq-cli
+*.exe
+*.dll
 *.so
-.Python
-env/
-venv/
-ENV/
-build/
-develop-eggs/
-dist/
-downloads/
-eggs/
-.eggs/
-lib/
-lib64/
-parts/
-sdist/
-var/
-wheels/
-*.egg-info/
-.installed.cfg
-*.egg
+*.dylib
 
-# IDE
-.vscode/
+# Testes
+coverage.out
+coverage.html
+*.test
+
+# Go
+*.mod
+*.sum
+vendor/
+
+# Configurações locais
+.env
+.config/
+*.local
+
+# IDEs
 .idea/
+.vscode/
 *.swp
 *.swo
 *~
@@ -37,5 +31,16 @@ wheels/
 .DS_Store
 Thumbs.db
 
+# Docker
+docker-compose.override.yml
+
+# Build
+dist/
+build/
+
 # Logs
 *.log
+
+# Temporários
+tmp/
+temp/
