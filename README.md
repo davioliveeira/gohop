@@ -9,19 +9,20 @@
 </p>
 
 <p align="center">
-  <a href="#features">Features</a> •
-  <a href="#installation">Installation</a> •
-  <a href="#quick-start">Quick Start</a> •
-  <a href="#usage">Usage</a> •
-  <a href="#screenshots">Screenshots</a> •
-  <a href="#contributing">Contributing</a>
+  <a href="#-features">Features</a> •
+  <a href="#-installation">Installation</a> •
+  <a href="#-quick-start">Quick Start</a> •
+  <a href="#-usage">Usage</a> •
+  <a href="#-screenshots">Screenshots</a> •
+  <a href="docs/GETTING_STARTED.md">Documentation</a> •
+  <a href="#-contributing">Contributing</a>
 </p>
 
 <p align="center">
   <img src="https://img.shields.io/badge/Go-1.21+-00ADD8?style=flat&logo=go" alt="Go Version">
   <img src="https://img.shields.io/badge/License-MIT-green.svg" alt="License">
   <img src="https://img.shields.io/badge/RabbitMQ-3.x-FF6600?logo=rabbitmq" alt="RabbitMQ">
-  <img src="https://goreportcard.com/badge/github.com/davioliveeira/gohop" alt="Go Report Card">
+  <a href="https://goreportcard.com/report/github.com/davioliveeira/gohop"><img src="https://goreportcard.com/badge/github.com/davioliveeira/gohop" alt="Go Report Card"></a>
 </p>
 
 ---
@@ -32,7 +33,7 @@
 - 📊 **Real-time Monitoring** - Live dashboard for queue metrics
 - 🔄 **Retry System** - Built-in retry logic with Dead Letter Queues
 - ⚡ **Queue Management** - Create, delete, purge, and reconfigure queues
-- 🔧 **Easy Configuration** - Interactive setup wizard
+- 🔧 **Easy Configuration** - Interactive setup wizard with profiles support
 - 📈 **Multi-queue Dashboard** - Monitor multiple queues simultaneously
 - 🎯 **Zero Message Loss** - Safe queue reconfiguration preserving all messages
 
@@ -49,12 +50,14 @@ go install github.com/davioliveeira/gohop/cmd/gohop@latest
 ```bash
 git clone https://github.com/davioliveeira/gohop.git
 cd gohop
-make build
+make install
 ```
 
 ### Pre-built Binaries
 
 Download from [Releases](https://github.com/davioliveeira/gohop/releases).
+
+> 📖 **First time?** Check our [Getting Started Guide](docs/GETTING_STARTED.md)
 
 ## 🚀 Quick Start
 
@@ -64,7 +67,7 @@ Download from [Releases](https://github.com/davioliveeira/gohop/releases).
 gohop config init
 ```
 
-Or create a `.env` file:
+Or use environment variables / `.env` file:
 
 ```env
 RABBITMQ_HOST=localhost
@@ -102,6 +105,7 @@ gohop
 gohop config init          # Interactive setup
 gohop config test          # Test connection
 gohop config view          # Show current config
+gohop config list          # List all profiles
 
 # Queue Management
 gohop queue list           # List all queues
@@ -117,6 +121,8 @@ gohop retry status <name>  # Check retry system
 # Monitoring
 gohop monitor <name>       # Real-time dashboard
 ```
+
+> 📖 See [full command reference](docs/GETTING_STARTED.md#common-operations)
 
 ## 🎯 Retry System Architecture
 
@@ -144,10 +150,12 @@ GoHop implements a robust retry system with Dead Letter Queues:
 
 **Benefits:**
 - ✅ No infinite loops
-- ✅ Configurable retry count
-- ✅ Configurable delay between retries
+- ✅ Configurable retry count (default: 3)
+- ✅ Configurable delay between retries (default: 5s)
 - ✅ Failed messages preserved in DLQ
 - ✅ Easy reprocessing from DLQ
+
+> 📖 Learn more about [retry system setup](docs/GETTING_STARTED.md#setting-up-retry-system)
 
 ## 🖼️ Screenshots
 
@@ -190,23 +198,15 @@ GoHop implements a robust retry system with Dead Letter Queues:
 - Docker (for integration tests)
 - Make
 
-### Build
+### Build & Test
 
 ```bash
-make build
-```
-
-### Test
-
-```bash
-# Unit tests
-make test
-
-# Integration tests (requires Docker)
-make test-integration
-
-# All tests with coverage
-make test-coverage
+make build              # Build binary
+make install            # Install globally
+make test               # Unit tests
+make test-integration   # Integration tests (Docker)
+make test-coverage      # Coverage report
+make help               # All commands
 ```
 
 ### Project Structure
@@ -221,10 +221,17 @@ gohop/
 │   ├── rabbitmq/       # RabbitMQ client & management API
 │   ├── retry/          # Retry system logic
 │   └── ui/             # TUI components (Bubble Tea)
-├── scripts/            # Helper scripts
+├── docs/               # Documentation
 ├── Makefile
 └── README.md
 ```
+
+## 📚 Documentation
+
+| Document | Description |
+|----------|-------------|
+| [Getting Started](docs/GETTING_STARTED.md) | Installation and first steps |
+| [Examples](docs/GETTING_STARTED.md#common-operations) | Common usage examples |
 
 ## 🤝 Contributing
 
@@ -242,9 +249,10 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 
 ## 🙏 Acknowledgments
 
-- [Charm](https://charm.sh) - For the amazing TUI libraries
+- [Charm](https://charm.sh) - For the amazing TUI libraries (Bubble Tea, Lip Gloss, Huh)
 - [RabbitMQ](https://www.rabbitmq.com) - The message broker
 - [Cobra](https://github.com/spf13/cobra) - CLI framework
+- [Viper](https://github.com/spf13/viper) - Configuration management
 
 ---
 
