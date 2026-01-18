@@ -22,8 +22,31 @@ build:
 ## install: Instalar globalmente
 install: build
 	@echo "📦 Installing $(BINARY_NAME)..."
-	go install ./cmd/gohop
+	@go install ./cmd/gohop
+	@GOBIN_PATH=$$(go env GOPATH)/bin; \
+	if ! echo "$$PATH" | grep -q "$$GOBIN_PATH"; then \
+		echo "🔧 Configuring PATH..."; \
+		SHELL_RC=""; \
+		if [ -f "$$HOME/.zshrc" ]; then \
+			SHELL_RC="$$HOME/.zshrc"; \
+		elif [ -f "$$HOME/.bashrc" ]; then \
+			SHELL_RC="$$HOME/.bashrc"; \
+		elif [ -f "$$HOME/.bash_profile" ]; then \
+			SHELL_RC="$$HOME/.bash_profile"; \
+		fi; \
+		if [ -n "$$SHELL_RC" ]; then \
+			if ! grep -q 'go/bin' "$$SHELL_RC" 2>/dev/null; then \
+				echo "" >> "$$SHELL_RC"; \
+				echo "# GoHop - Go binaries path" >> "$$SHELL_RC"; \
+				echo 'export PATH="$$PATH:$$HOME/go/bin"' >> "$$SHELL_RC"; \
+				echo "✅ Added Go bin to PATH in $$SHELL_RC"; \
+				echo "⚠️  Run 'source $$SHELL_RC' or open a new terminal"; \
+			fi; \
+		fi; \
+	fi
+	@echo ""
 	@echo "✅ Installed! Run 'gohop' to start"
+	@echo "   Location: $$(go env GOPATH)/bin/$(BINARY_NAME)"
 
 ## release: Build para múltiplas plataformas
 release:
