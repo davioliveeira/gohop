@@ -4,8 +4,8 @@ import (
 	"fmt"
 
 	amqp "github.com/rabbitmq/amqp091-go"
-	"github.com/davioliveeira/rabbit/internal/config"
-	"github.com/davioliveeira/rabbit/internal/rabbitmq"
+	"github.com/davioliveeira/gohop/internal/config"
+	"github.com/davioliveeira/gohop/internal/rabbitmq"
 )
 
 // SetupOptions são opções para configurar o sistema de retry
