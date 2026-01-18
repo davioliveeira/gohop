@@ -5,7 +5,7 @@ import (
 	"time"
 
 	amqp "github.com/rabbitmq/amqp091-go"
-	"github.com/davioliveeira/rabbit/internal/config"
+	"github.com/davioliveeira/gohop/internal/config"
 )
 
 // Client representa um cliente RabbitMQ
