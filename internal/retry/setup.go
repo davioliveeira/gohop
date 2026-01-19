@@ -11,9 +11,10 @@ import (
 // SetupOptions são opções para configurar o sistema de retry
 type SetupOptions struct {
 	QueueName  string // Nome da fila principal
+	QueueType  string // Tipo da fila: "classic" ou "quorum"
 	MaxRetries int    // Número máximo de tentativas
 	RetryDelay int    // Delay entre tentativas em segundos (será convertido para TTL em ms)
-	DLQTTL     int    // TTL de mensagens na DLQ em milissegundos
+	DLQTTL     int    // TTL de mensagens na DLQ em milissegundos (0 = sem expiração)
 	Force      bool   // Recriar mesmo se já existir
 }
 
@@ -61,11 +62,17 @@ func SetupRetry(client *rabbitmq.Client, opts SetupOptions) error {
 	// 2. Criar Wait Queue (delays mensagem antes de retry)
 	// TTL é em milissegundos
 	retryDelayMs := opts.RetryDelay * 1000
-	
+
+	// Determinar tipo de fila (herda da fila principal)
+	queueType := opts.QueueType
+	if queueType == "" {
+		queueType = "classic"
+	}
+
 	waitQueueArgs := amqp.Table{
-		"x-message-ttl":           int32(retryDelayMs),
-		"x-dead-letter-exchange":  retryExchangeName,
-		"x-queue-type":            "classic",
+		"x-message-ttl":          int32(retryDelayMs),
+		"x-dead-letter-exchange": retryExchangeName,
+		"x-queue-type":           queueType,
 	}
 
 	if _, err := channel.QueueDeclare(
@@ -105,8 +112,9 @@ func SetupRetry(client *rabbitmq.Client, opts SetupOptions) error {
 	}
 
 	// 5. Criar DLQ (destino final após max retries)
+	// Herda o tipo da fila principal para manter consistência
 	dlqArgs := amqp.Table{
-		"x-queue-type": "classic",
+		"x-queue-type": queueType,
 	}
 	// Apenas adiciona TTL se for maior que 0 (0 = sem expiração)
 	if opts.DLQTTL > 0 {

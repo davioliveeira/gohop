@@ -147,6 +147,7 @@ func runRetrySetup(cmd *cobra.Command, args []string) error {
 
 	setupOpts := retry.SetupOptions{
 		QueueName:  queueName,
+		QueueType:  queueType,
 		MaxRetries: maxRetries,
 		RetryDelay: retryDelay,
 		DLQTTL:     dlqTTL,

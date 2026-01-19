@@ -661,6 +661,7 @@ func CreateQueueFromForm(cfg *config.Config, result *QueueCreateFormResult) erro
 	if result.WithRetry {
 		setupOpts := retry.SetupOptions{
 			QueueName:  result.QueueName,
+			QueueType:  result.QueueTypeSel,
 			MaxRetries: result.MaxRetries,
 			RetryDelay: result.RetryDelay,
 			DLQTTL:     result.DLQTTL,
@@ -1243,6 +1244,7 @@ func ReconfigureQueueWithRetry(cfg *config.Config, result *ReconfigureQueueResul
 
 	setupOpts := retry.SetupOptions{
 		QueueName:  result.QueueName,
+		QueueType:  result.QueueType,
 		MaxRetries: result.MaxRetries,
 		RetryDelay: result.RetryDelay,
 		DLQTTL:     result.DLQTTL,

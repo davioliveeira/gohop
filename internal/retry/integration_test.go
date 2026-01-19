@@ -43,6 +43,7 @@ func TestSetupRetry_Integration(t *testing.T) {
 
 	opts := SetupOptions{
 		QueueName:  queueName,
+		QueueType:  "classic",
 		MaxRetries: 3,
 		RetryDelay: 5,
 		DLQTTL:     604800000,
@@ -119,6 +120,7 @@ func TestRetryComponentNames_Integration(t *testing.T) {
 
 	opts := SetupOptions{
 		QueueName:  queueName,
+		QueueType:  "classic",
 		MaxRetries: 3,
 		RetryDelay: 5,
 		DLQTTL:     604800000,
