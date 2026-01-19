@@ -268,16 +268,17 @@ func RunQueueCreateForm(cfg *config.Config) (*QueueCreateFormResult, error) {
 						return nil
 					}),
 
-				huh.NewSelect[string]().
-					Title("📅 Retenção na DLQ").
-					Description("Por quanto tempo manter mensagens mortas").
-					Options(
-						huh.NewOption("1 dia", "86400000"),
-						huh.NewOption("7 dias (recomendado)", "604800000"),
-						huh.NewOption("30 dias", "2592000000"),
-						huh.NewOption("90 dias", "7776000000"),
-					).
-					Value(&dlqTTL),
+			huh.NewSelect[string]().
+				Title("📅 Retenção na DLQ").
+				Description("Por quanto tempo manter mensagens mortas").
+				Options(
+					huh.NewOption("♾️  Sem expiração (manter para sempre)", "0"),
+					huh.NewOption("1 dia", "86400000"),
+					huh.NewOption("7 dias (recomendado)", "604800000"),
+					huh.NewOption("30 dias", "2592000000"),
+					huh.NewOption("90 dias", "7776000000"),
+				).
+				Value(&dlqTTL),
 			),
 		)
 		form3.WithTheme(getCustomTheme())
@@ -470,6 +471,8 @@ func renderSummary(name, qType string, durable, autoDelete, withRetry bool, maxR
 
 		dlqDays := "7 dias"
 		switch dlqTTL {
+		case "0":
+			dlqDays = "♾️  Sem expiração"
 		case "86400000":
 			dlqDays = "1 dia"
 		case "2592000000":
@@ -1111,11 +1114,17 @@ func RunReconfigureQueueForm(cfg *config.Config) (*ReconfigureQueueResult, error
 					return nil
 				}),
 
-			huh.NewInput().
-				Title("TTL da DLQ (milissegundos)").
-				Description("Tempo de vida das mensagens na DLQ (604800000 = 7 dias)").
-				Value(&dlqTTL).
-				Placeholder("604800000"),
+			huh.NewSelect[string]().
+				Title("📅 Retenção na DLQ").
+				Description("Por quanto tempo manter mensagens mortas").
+				Options(
+					huh.NewOption("♾️  Sem expiração (manter para sempre)", "0"),
+					huh.NewOption("1 dia", "86400000"),
+					huh.NewOption("7 dias (recomendado)", "604800000"),
+					huh.NewOption("30 dias", "2592000000"),
+					huh.NewOption("90 dias", "7776000000"),
+				).
+				Value(&dlqTTL),
 		),
 	)
 	form2.WithTheme(getCustomTheme())

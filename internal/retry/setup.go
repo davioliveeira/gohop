@@ -106,8 +106,11 @@ func SetupRetry(client *rabbitmq.Client, opts SetupOptions) error {
 
 	// 5. Criar DLQ (destino final após max retries)
 	dlqArgs := amqp.Table{
-		"x-message-ttl": int32(opts.DLQTTL),
-		"x-queue-type":  "classic",
+		"x-queue-type": "classic",
+	}
+	// Apenas adiciona TTL se for maior que 0 (0 = sem expiração)
+	if opts.DLQTTL > 0 {
+		dlqArgs["x-message-ttl"] = int32(opts.DLQTTL)
 	}
 
 	if _, err := channel.QueueDeclare(
